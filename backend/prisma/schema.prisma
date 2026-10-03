@@ -1,0 +1,223 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  role      String   // Admin, Sales Executive, etc.
+  status    String   @default("Active")
+  createdAt DateTime @default(now())
+
+  // Relations
+  customers      Customer[]
+  leads          Lead[]
+  opportunities  Opportunity[]
+  quotations     Quotation[]
+  salesOrders    SalesOrder[]  @relation("Creator")
+  approvedOrders SalesOrder[]  @relation("Approver")
+  payments       Payment[]
+}
+
+model Customer {
+  id           String   @id @default(uuid())
+  company      String
+  contact      String
+  email        String
+  phone        String
+  city         String
+  industry     String
+  gstin        String?
+  creditLimit  Float    @default(0)
+  outstanding  Float    @default(0)
+  status       String   @default("Prospect") // Active, On Hold, Prospect
+  lastActivity DateTime @default(now())
+  since        DateTime @default(now())
+  
+  ownerId      String
+  owner        User     @relation(fields: [ownerId], references: [id])
+
+  opportunities Opportunity[]
+  quotations    Quotation[]
+  salesOrders   SalesOrder[]
+  invoices      Invoice[]
+  payments      Payment[]
+}
+
+model Lead {
+  id           String   @id @default(uuid())
+  name         String
+  company      String
+  email        String
+  source       String   // Website, Referral, etc.
+  value        Float    @default(0)
+  status       String   @default("New") // New, Contacted, Qualified, Converted, Lost
+  lastContact  DateTime?
+  createdAt    DateTime @default(now())
+
+  ownerId      String
+  owner        User     @relation(fields: [ownerId], references: [id])
+  opportunityId String?
+}
+
+model Opportunity {
+  id          String   @id @default(uuid())
+  name        String
+  value       Float
+  probability Float
+  stage       String   // Lead, Qualified, Proposal, Negotiation, Won, Lost
+  closeDate   DateTime
+  createdAt   DateTime @default(now())
+
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id])
+  ownerId     String
+  owner       User     @relation(fields: [ownerId], references: [id])
+}
+
+model Product {
+  id       String   @id @default(uuid())
+  sku      String   @unique
+  name     String
+  category String
+  kind     String   // Hardware, License, Service
+  price    Float
+  onHand   Int      @default(0)
+  reorder  Int      @default(0)
+
+  quotationLines  QuotationLine[]
+  salesOrderLines SalesOrderLine[]
+}
+
+model Quotation {
+  id            String   @id @default(uuid())
+  discountPct   Float    @default(0)
+  gross         Float
+  discountAmt   Float
+  net           Float
+  tax           Float
+  total         Float
+  status        String   @default("Draft")
+  validUntil    DateTime
+  createdAt     DateTime @default(now())
+  terms         String
+  orderId       String?
+
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id])
+  createdBy     String
+  creator       User     @relation(fields: [createdBy], references: [id])
+  opportunityId String?
+
+  lines         QuotationLine[]
+}
+
+model QuotationLine {
+  id          String    @id @default(uuid())
+  qty         Int
+  unitPrice   Float
+
+  quotationId String
+  quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id])
+}
+
+model SalesOrder {
+  id              String   @id @default(uuid())
+  discountPct     Float    @default(0)
+  gross           Float
+  discountAmt     Float
+  net             Float
+  tax             Float
+  total           Float
+  riskLevel       String
+  riskScore       Float    @default(0)
+  approvalStatus  String   @default("Not Required")
+  inventoryStatus String   @default("Not Reserved")
+  paymentStatus   String   @default("Not Invoiced")
+  createdAt       DateTime @default(now())
+  terms           String
+  changeNote      String?
+  rejectReason    String?
+
+  customerId      String
+  customer        Customer @relation(fields: [customerId], references: [id])
+  createdBy       String
+  creator         User     @relation("Creator", fields: [createdBy], references: [id])
+  approverId      String?
+  approver        User?    @relation("Approver", fields: [approverId], references: [id])
+  quotationId     String?
+  opportunityId   String?
+
+  lines           SalesOrderLine[]
+  invoices        Invoice[]
+}
+
+model SalesOrderLine {
+  id           String     @id @default(uuid())
+  qty          Int
+  unitPrice    Float
+
+  salesOrderId String
+  salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product    @relation(fields: [productId], references: [id])
+}
+
+model Invoice {
+  id           String     @id @default(uuid())
+  amount       Float
+  paid         Float      @default(0)
+  outstanding  Float
+  status       String     @default("Issued")
+  issuedAt     DateTime   @default(now())
+  due          DateTime
+  discountPct  Float      @default(0)
+  gross        Float
+  discountAmt  Float
+  net          Float
+  tax          Float
+  notes        String?
+
+  customerId   String
+  customer     Customer   @relation(fields: [customerId], references: [id])
+  orderId      String?
+  order        SalesOrder? @relation(fields: [orderId], references: [id])
+
+  payments     Payment[]
+}
+
+model Payment {
+  id           String     @id @default(uuid())
+  amount       Float
+  method       String     // NEFT, RTGS, UPI, Card, Cheque
+  date         DateTime   @default(now())
+  status       String     @default("Cleared")
+  reference    String
+
+  invoiceId    String
+  invoice      Invoice    @relation(fields: [invoiceId], references: [id])
+  customerId   String
+  customer     Customer   @relation(fields: [customerId], references: [id])
+  recordedBy   String
+  recorder     User       @relation(fields: [recordedBy], references: [id])
+}
+
+model LedgerEntry {
+  id          String   @id @default(uuid())
+  date        DateTime @default(now())
+  reference   String
+  account     String
+  description String
+  debit       Float    @default(0)
+  credit      Float    @default(0)
+}
