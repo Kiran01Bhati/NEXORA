@@ -5,13 +5,10 @@ import {
   acknowledgeAlert,
   addCustomer,
   addInteraction,
-  addLead,
-  addQuotation,
   adjustStock,
   approveOrder,
   attemptApproval,
   closeDecision,
-  convertLead,
   convertQuotation,
   createOrder,
   dismissToast,
@@ -19,7 +16,6 @@ import {
   inviteUser,
   markAllNotices,
   markNotice,
-  moveOpportunity,
   navigate,
   patchUi,
   pruneToasts,
@@ -89,6 +85,8 @@ interface Api {
   reevaluate: () => void;
   addCustomer: (input: CustomerInput) => void;
   addLead: (input: LeadInput) => void;
+  updateLead: (id: string, input: Partial<LeadInput>) => void;
+  deleteLead: (id: string) => void;
   convertLead: (id: string) => void;
   moveOpportunity: (id: string, stage: AppState["opportunities"][number]["stage"]) => void;
   addInteraction: (input: InteractionInput) => void;
@@ -113,6 +111,23 @@ const Ctx = createContext<Api | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(() => load());
+
+  useEffect(() => {
+    Promise.all([
+      fetch("http://localhost:5000/api/leads").then((r) => r.json()),
+      fetch("http://localhost:5000/api/opportunities").then((r) => r.json()),
+      fetch("http://localhost:5000/api/quotations").then((r) => r.json()),
+    ])
+      .then(([leads, opportunities, quotations]) => {
+        setState((s) => ({
+          ...s,
+          ...(Array.isArray(leads) && { leads }),
+          ...(Array.isArray(opportunities) && { opportunities }),
+          ...(Array.isArray(quotations) && { quotations }),
+        }));
+      })
+      .catch(console.error);
+  }, []);
 
   useEffect(() => {
     const { toasts, ui, ...data } = state;
@@ -182,11 +197,124 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setPolicy: (policy) => run((s) => setPolicy(s, policy)),
       reevaluate: () => run(reevaluate),
       addCustomer: (input) => run((s) => addCustomer(s, input)),
-      addLead: (input) => run((s) => addLead(s, input)),
-      convertLead: (id) => run((s) => convertLead(s, id)),
-      moveOpportunity: (id, stage) => run((s) => moveOpportunity(s, id, stage)),
+      addLead: async (input) => {
+        try {
+          const res = await fetch("http://localhost:5000/api/leads", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...input, ownerId: state.userId }),
+          });
+          if (res.ok) {
+            const lead = await res.json();
+            setState((s) => ({ ...s, leads: [lead, ...s.leads] }));
+            api.toast(`Lead created successfully`, "success");
+            api.navigate({ page: "leads" });
+          } else {
+            api.toast("Failed to create lead", "danger");
+          }
+        } catch (e) {
+          api.toast("API error", "danger");
+        }
+      },
+      updateLead: async (id, input) => {
+        try {
+          const res = await fetch(`http://localhost:5000/api/leads/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(input),
+          });
+          if (res.ok) {
+            const updated = await res.json();
+            setState((s) => ({ ...s, leads: s.leads.map((l) => (l.id === id ? updated : l)) }));
+            api.toast("Lead updated", "success");
+          } else {
+            api.toast("Failed to update lead", "danger");
+          }
+        } catch (e) {
+          api.toast("API error", "danger");
+        }
+      },
+      deleteLead: async (id) => {
+        try {
+          const res = await fetch(`http://localhost:5000/api/leads/${id}`, {
+            method: "DELETE",
+          });
+          if (res.ok) {
+            setState((s) => ({ ...s, leads: s.leads.filter((l) => l.id !== id) }));
+            api.toast("Lead deleted", "success");
+          } else {
+            api.toast("Failed to delete lead", "danger");
+          }
+        } catch (e) {
+          api.toast("API error", "danger");
+        }
+      },
+      convertLead: async (id) => {
+        try {
+          const res = await fetch(`http://localhost:5000/api/leads/${id}/convert`, {
+            method: "POST",
+          });
+          if (res.ok) {
+            const { lead, opportunity, customer } = await res.json();
+            setState((s) => {
+              const customers = s.customers.some((c) => c.id === customer.id) ? s.customers : [customer, ...s.customers];
+              return {
+                ...s,
+                leads: s.leads.map((l) => (l.id === id ? lead : l)),
+                opportunities: [opportunity, ...s.opportunities],
+                customers,
+              };
+            });
+            api.toast(`${id} converted to ${opportunity.id}`, "success");
+            api.navigate({ page: "pipeline", id: opportunity.id });
+          } else {
+            api.toast("Failed to convert lead", "danger");
+          }
+        } catch (e) {
+          api.toast("API error", "danger");
+        }
+      },
+      moveOpportunity: async (id, stage) => {
+        try {
+          const res = await fetch(`http://localhost:5000/api/opportunities/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ stage, probability: stage === "Won" ? 100 : stage === "Lost" ? 0 : undefined }),
+          });
+          if (res.ok) {
+            const opp = await res.json();
+            setState((s) => ({
+              ...s,
+              opportunities: s.opportunities.map((o) => (o.id === id ? opp : o)),
+            }));
+            api.toast(`Moved to ${stage}`, "success");
+          } else {
+            api.toast("Failed to move opportunity", "danger");
+          }
+        } catch (e) {
+          api.toast("API error", "danger");
+        }
+      },
       addInteraction: (input) => run((s) => addInteraction(s, input)),
-      addQuotation: (input) => run((s) => addQuotation(s, input)),
+      addQuotation: async (input) => {
+        try {
+          const res = await fetch("http://localhost:5000/api/quotations", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...input, createdBy: state.userId }),
+          });
+          if (res.ok) {
+            const quotation = await res.json();
+            setState((s) => ({ ...s, quotations: [quotation, ...s.quotations] }));
+            api.toast(`Quotation issued`, "success");
+            api.navigate({ page: "quotation", id: quotation.id });
+          } else {
+            api.toast("Failed to create quotation", "danger");
+          }
+        } catch (e) {
+          api.toast("API error", "danger");
+        }
+      },
       convertQuotation: (id) => run((s) => convertQuotation(s, id)),
       createOrder: (input) => run((s) => createOrder(s, input)),
       attemptApproval: (id) => run((s) => attemptApproval(s, id)),

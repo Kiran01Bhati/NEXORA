@@ -99,4 +99,49 @@ router.post("/:id/convert", async (req, res) => {
   }
 });
 
+// Update Lead
+router.patch("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, company, email, source, value, status, lastContact } = req.body;
+
+    const lead = await prisma.lead.update({
+      where: { id },
+      data: {
+        ...(name !== undefined && { name }),
+        ...(company !== undefined && { company }),
+        ...(email !== undefined && { email }),
+        ...(source !== undefined && { source }),
+        ...(value !== undefined && { value }),
+        ...(status !== undefined && { status }),
+        ...(lastContact !== undefined && { lastContact: lastContact ? new Date(lastContact) : null }),
+      },
+    });
+    res.json(lead);
+  } catch (error: any) {
+    console.error(error);
+    if (error.code === "P2025") {
+      return res.status(404).json({ error: "Lead not found" });
+    }
+    res.status(500).json({ error: "Failed to update lead" });
+  }
+});
+
+// Delete Lead
+router.delete("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    await prisma.lead.delete({
+      where: { id },
+    });
+    res.status(204).send();
+  } catch (error: any) {
+    console.error(error);
+    if (error.code === "P2025") {
+      return res.status(404).json({ error: "Lead not found" });
+    }
+    res.status(500).json({ error: "Failed to delete lead" });
+  }
+});
+
 export default router;
