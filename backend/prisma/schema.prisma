@@ -4,6 +4,7 @@
 generator client {
   provider = "prisma-client-js"
 }
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -13,17 +14,16 @@ model User {
   id        String   @id @default(uuid())
   name      String
   email     String   @unique
-  role      String   // Admin, Sales Executive, etc.
+  role      String // Admin, Sales Executive, etc.
   status    String   @default("Active")
   createdAt DateTime @default(now())
 
   // Relations
   customers      Customer[]
   leads          Lead[]
-  opportunities  Opportunity[]
   quotations     Quotation[]
-  salesOrders    SalesOrder[]  @relation("Creator")
-  approvedOrders SalesOrder[]  @relation("Approver")
+  salesOrders    SalesOrder[] @relation("Creator")
+  approvedOrders SalesOrder[] @relation("Approver")
   payments       Payment[]
 }
 
@@ -41,75 +41,75 @@ model Customer {
   status       String   @default("Prospect") // Active, On Hold, Prospect
   lastActivity DateTime @default(now())
   since        DateTime @default(now())
-  
-  ownerId      String
-  owner        User     @relation(fields: [ownerId], references: [id])
 
-  opportunities Opportunity[]
-  quotations    Quotation[]
-  salesOrders   SalesOrder[]
-  invoices      Invoice[]
-  payments      Payment[]
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id])
+
+  quotations  Quotation[]
+  salesOrders SalesOrder[]
+  invoices    Invoice[]
+  payments    Payment[]
 }
 
 model Lead {
-  id           String   @id @default(uuid())
-  name         String
-  company      String
-  email        String
-  source       String   // Website, Referral, etc.
-  value        Float    @default(0)
-  status       String   @default("New") // New, Contacted, Qualified, Converted, Lost
-  lastContact  DateTime?
-  createdAt    DateTime @default(now())
+  id          String    @id @default(uuid())
+  name        String
+  company     String
+  email       String
+  source      String // Website, Referral, etc.
+  value       Float     @default(0)
+  status      String    @default("New") // New, Contacted, Qualified, Converted, Lost
+  lastContact DateTime?
+  createdAt   DateTime  @default(now())
 
-  ownerId      String
-  owner        User     @relation(fields: [ownerId], references: [id])
+  ownerId       String
+  owner         User          @relation(fields: [ownerId], references: [id])
   opportunityId String?
+  opportunities Opportunity[]
 }
 
 model Opportunity {
-  id          String   @id @default(uuid())
-  name        String
-  value       Float
-  probability Float
-  stage       String   // Lead, Qualified, Proposal, Negotiation, Won, Lost
-  closeDate   DateTime
-  createdAt   DateTime @default(now())
-
-  customerId  String
-  customer    Customer @relation(fields: [customerId], references: [id])
-  ownerId     String
-  owner       User     @relation(fields: [ownerId], references: [id])
+  id                String    @id @default(uuid())
+  leadId            String
+  lead              Lead      @relation(fields: [leadId], references: [id])
+  title             String
+  description       String?
+  estimatedValue    Float
+  probability       Float
+  expectedCloseDate DateTime?
+  stage             String
+  status            String    @default("open")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 }
 
 model Product {
-  id       String   @id @default(uuid())
-  sku      String   @unique
+  id       String @id @default(uuid())
+  sku      String @unique
   name     String
   category String
-  kind     String   // Hardware, License, Service
+  kind     String // Hardware, License, Service
   price    Float
-  onHand   Int      @default(0)
-  reorder  Int      @default(0)
+  onHand   Int    @default(0)
+  reorder  Int    @default(0)
 
   quotationLines  QuotationLine[]
   salesOrderLines SalesOrderLine[]
 }
 
 model Quotation {
-  id            String   @id @default(uuid())
-  discountPct   Float    @default(0)
-  gross         Float
-  discountAmt   Float
-  net           Float
-  tax           Float
-  total         Float
-  status        String   @default("Draft")
-  validUntil    DateTime
-  createdAt     DateTime @default(now())
-  terms         String
-  orderId       String?
+  id          String   @id @default(uuid())
+  discountPct Float    @default(0)
+  gross       Float
+  discountAmt Float
+  net         Float
+  tax         Float
+  total       Float
+  status      String   @default("Draft")
+  validUntil  DateTime
+  createdAt   DateTime @default(now())
+  terms       String
+  orderId     String?
 
   customerId    String
   customer      Customer @relation(fields: [customerId], references: [id])
@@ -117,13 +117,13 @@ model Quotation {
   creator       User     @relation(fields: [createdBy], references: [id])
   opportunityId String?
 
-  lines         QuotationLine[]
+  lines QuotationLine[]
 }
 
 model QuotationLine {
-  id          String    @id @default(uuid())
-  qty         Int
-  unitPrice   Float
+  id        String @id @default(uuid())
+  qty       Int
+  unitPrice Float
 
   quotationId String
   quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
@@ -149,23 +149,23 @@ model SalesOrder {
   changeNote      String?
   rejectReason    String?
 
-  customerId      String
-  customer        Customer @relation(fields: [customerId], references: [id])
-  createdBy       String
-  creator         User     @relation("Creator", fields: [createdBy], references: [id])
-  approverId      String?
-  approver        User?    @relation("Approver", fields: [approverId], references: [id])
-  quotationId     String?
-  opportunityId   String?
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id])
+  createdBy     String
+  creator       User     @relation("Creator", fields: [createdBy], references: [id])
+  approverId    String?
+  approver      User?    @relation("Approver", fields: [approverId], references: [id])
+  quotationId   String?
+  opportunityId String?
 
-  lines           SalesOrderLine[]
-  invoices        Invoice[]
+  lines    SalesOrderLine[]
+  invoices Invoice[]
 }
 
 model SalesOrderLine {
-  id           String     @id @default(uuid())
-  qty          Int
-  unitPrice    Float
+  id        String @id @default(uuid())
+  qty       Int
+  unitPrice Float
 
   salesOrderId String
   salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
@@ -174,42 +174,42 @@ model SalesOrderLine {
 }
 
 model Invoice {
-  id           String     @id @default(uuid())
-  amount       Float
-  paid         Float      @default(0)
-  outstanding  Float
-  status       String     @default("Issued")
-  issuedAt     DateTime   @default(now())
-  due          DateTime
-  discountPct  Float      @default(0)
-  gross        Float
-  discountAmt  Float
-  net          Float
-  tax          Float
-  notes        String?
+  id          String   @id @default(uuid())
+  amount      Float
+  paid        Float    @default(0)
+  outstanding Float
+  status      String   @default("Issued")
+  issuedAt    DateTime @default(now())
+  due         DateTime
+  discountPct Float    @default(0)
+  gross       Float
+  discountAmt Float
+  net         Float
+  tax         Float
+  notes       String?
 
-  customerId   String
-  customer     Customer   @relation(fields: [customerId], references: [id])
-  orderId      String?
-  order        SalesOrder? @relation(fields: [orderId], references: [id])
+  customerId String
+  customer   Customer    @relation(fields: [customerId], references: [id])
+  orderId    String?
+  order      SalesOrder? @relation(fields: [orderId], references: [id])
 
-  payments     Payment[]
+  payments Payment[]
 }
 
 model Payment {
-  id           String     @id @default(uuid())
-  amount       Float
-  method       String     // NEFT, RTGS, UPI, Card, Cheque
-  date         DateTime   @default(now())
-  status       String     @default("Cleared")
-  reference    String
+  id        String   @id @default(uuid())
+  amount    Float
+  method    String // NEFT, RTGS, UPI, Card, Cheque
+  date      DateTime @default(now())
+  status    String   @default("Cleared")
+  reference String
 
-  invoiceId    String
-  invoice      Invoice    @relation(fields: [invoiceId], references: [id])
-  customerId   String
-  customer     Customer   @relation(fields: [customerId], references: [id])
-  recordedBy   String
-  recorder     User       @relation(fields: [recordedBy], references: [id])
+  invoiceId  String
+  invoice    Invoice  @relation(fields: [invoiceId], references: [id])
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+  recordedBy String
+  recorder   User     @relation(fields: [recordedBy], references: [id])
 }
 
 model LedgerEntry {

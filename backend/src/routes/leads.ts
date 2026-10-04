@@ -73,13 +73,13 @@ router.post("/:id/convert", async (req, res) => {
 
     const opportunity = await prisma.opportunity.create({
       data: {
-        name: `${lead.company} opportunity`,
-        value: lead.value,
+        leadId: lead.id,
+        title: `${lead.company} opportunity`,
+        estimatedValue: lead.value,
         probability: 40,
-        stage: "Qualified",
-        closeDate,
-        customerId: customer.id,
-        ownerId: lead.ownerId,
+        stage: "qualification",
+        expectedCloseDate: closeDate,
+        status: "open",
       },
     });
 
@@ -141,6 +141,21 @@ router.delete("/:id", async (req, res) => {
       return res.status(404).json({ error: "Lead not found" });
     }
     res.status(500).json({ error: "Failed to delete lead" });
+  }
+});
+
+// Get opportunities for a lead
+router.get("/:leadId/opportunities", async (req, res) => {
+  try {
+    const { leadId } = req.params;
+    const opportunities = await prisma.opportunity.findMany({
+      where: { leadId },
+      orderBy: { createdAt: "desc" },
+    });
+    res.json(opportunities);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to fetch opportunities for lead" });
   }
 });
 
