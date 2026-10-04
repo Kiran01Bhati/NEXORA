@@ -69,18 +69,19 @@ model Lead {
 }
 
 model Opportunity {
-  id                String    @id @default(uuid())
+  id                String      @id @default(uuid())
   leadId            String
-  lead              Lead      @relation(fields: [leadId], references: [id])
+  lead              Lead        @relation(fields: [leadId], references: [id])
   title             String
   description       String?
   estimatedValue    Float
   probability       Float
   expectedCloseDate DateTime?
   stage             String
-  status            String    @default("open")
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  status            String      @default("open")
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  quotations        Quotation[]
 }
 
 model Product {
@@ -93,42 +94,49 @@ model Product {
   onHand   Int    @default(0)
   reorder  Int    @default(0)
 
-  quotationLines  QuotationLine[]
+  quotationItems  QuotationItem[]
   salesOrderLines SalesOrderLine[]
 }
 
 model Quotation {
-  id          String   @id @default(uuid())
-  discountPct Float    @default(0)
-  gross       Float
-  discountAmt Float
-  net         Float
-  tax         Float
-  total       Float
-  status      String   @default("Draft")
-  validUntil  DateTime
-  createdAt   DateTime @default(now())
-  terms       String
-  orderId     String?
+  id              String    @id @default(uuid())
+  quotationNumber String    @unique @default(dbgenerated("gen_random_uuid()::text"))
+  date            DateTime  @default(now())
+  validUntil      DateTime?
+  status          String    @default("Draft")
+  notes           String?
+  subtotal        Float     @default(0)
+  discount        Float     @default(0)
+  tax             Float     @default(0)
+  total           Float     @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now()) @updatedAt
+  terms           String?
+  orderId         String?
 
-  customerId    String
-  customer      Customer @relation(fields: [customerId], references: [id])
-  createdBy     String
-  creator       User     @relation(fields: [createdBy], references: [id])
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id])
+  createdBy  String?
+  creator    User?     @relation(fields: [createdBy], references: [id])
+
   opportunityId String?
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id])
 
-  lines QuotationLine[]
+  items QuotationItem[]
 }
 
-model QuotationLine {
-  id        String @id @default(uuid())
-  qty       Int
+model QuotationItem {
+  id        String   @id @default(uuid())
+  quantity  Int
   unitPrice Float
+  lineTotal Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   quotationId String
   quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
-  productId   String
-  product     Product   @relation(fields: [productId], references: [id])
+  productId   String?
+  product     Product?  @relation(fields: [productId], references: [id])
 }
 
 model SalesOrder {
