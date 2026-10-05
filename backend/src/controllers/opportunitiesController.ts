@@ -15,7 +15,7 @@ export class OpportunitiesController {
 
   async getById(req: Request, res: Response): Promise<any> {
     try {
-      const { id } = req.params;
+      const id = req.params.id as string;
       const opportunity = await opportunitiesService.getOpportunityById(id);
       
       if (!opportunity) {
@@ -49,16 +49,15 @@ export class OpportunitiesController {
 
   async update(req: Request, res: Response): Promise<any> {
     try {
-      const { id } = req.params;
+      const id = req.params.id as string;
       
-      // We can reuse validation but allow partial updates
-      // Here we just do a quick validation for specific fields if they are provided
-      const errors: string[] = [];
-      if (req.body.estimatedValue !== undefined && req.body.estimatedValue < 0) {
-        errors.push("estimatedValue cannot be negative");
+      let errors = validateOpportunityData(req.body);
+
+      if (req.body.leadId === undefined) {
+        errors = errors.filter((e: string) => e !== "leadId is required");
       }
-      if (req.body.probability !== undefined && (req.body.probability < 0 || req.body.probability > 100)) {
-        errors.push("probability must be between 0 and 100");
+      if (req.body.title === undefined) {
+        errors = errors.filter((e: string) => e !== "title is required");
       }
       if (errors.length > 0) {
         return res.status(400).json({ errors });
@@ -77,7 +76,7 @@ export class OpportunitiesController {
 
   async delete(req: Request, res: Response): Promise<any> {
     try {
-      const { id } = req.params;
+      const id = req.params.id as string;
       await opportunitiesService.deleteOpportunity(id);
       res.status(204).send();
     } catch (error: any) {
