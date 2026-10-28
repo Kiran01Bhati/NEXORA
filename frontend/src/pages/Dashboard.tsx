@@ -22,9 +22,11 @@ export function Dashboard() {
     d.setMonth(d.getMonth() - (5 - i));
     return d.toLocaleString("en-IN", { month: "short" });
   });
+  const currentInvTotal = state.invoices.reduce((s, i) => s + i.amount, 0);
+  const currentPayTotal = state.payments.reduce((s, p) => s + p.amount, 0);
   const base = [1820000, 2140000, 1960000, 2410000, 2280000, 2640000];
-  const inv = [2100000, 1980000, 2240000, 2360000, 2180000, 2510000];
-  const pay = [1640000, 1870000, 2010000, 1900000, 2420000, 1890000];
+  const inv = [2100000, 1980000, 2240000, 2360000, 2180000, currentInvTotal || 2510000];
+  const pay = [1640000, 1870000, 2010000, 1900000, 2420000, currentPayTotal || 1890000];
   const out = [460000, 570000, 800000, 1260000, 1020000, outstanding];
   const series: FinPoint[] = months.map((month, i) => ({ month, revenue: base[i], invoices: inv[i], payments: pay[i], outstanding: out[i] }));
 

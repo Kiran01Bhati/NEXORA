@@ -2,15 +2,24 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { createInitialState } from "@/data/seed";
 import { VERSION, currentUser } from "@/lib/domain";
 import {
+  apiClient,
+  normalizeInvoice,
+  normalizeOpportunity,
+  normalizePayment,
+  normalizeQuotation,
+  normalizeSalesOrder,
+} from "@/lib/api";
+import {
   acknowledgeAlert,
   addCustomer,
   addInteraction,
   adjustStock,
-  approveOrder,
+  approveOrder as localApproveOrder,
   attemptApproval,
   closeDecision,
-  convertQuotation,
-  createOrder,
+  convertLead as localConvertLead,
+  convertQuotation as localConvertQuotation,
+  createOrder as localCreateOrder,
   dismissToast,
   goBack,
   inviteUser,
@@ -21,11 +30,11 @@ import {
   pruneToasts,
   pushToast,
   receivePurchase,
-  recordPayment,
+  recordPayment as localRecordPayment,
   reevaluate,
-  rejectOrder,
-  releaseOrder,
-  requestChanges,
+  rejectOrder as localRejectOrder,
+  releaseOrder as localReleaseOrder,
+  requestChanges as localRequestChanges,
   resetDemo,
   setPolicy,
   setUser,
@@ -99,6 +108,7 @@ interface Api {
   requestChanges: (orderId: string, note: string) => void;
   releaseOrder: (orderId: string) => void;
   recordPayment: (input: PaymentInput) => void;
+  syncLedger: () => void;
   receivePurchase: (id: string) => void;
   adjustStock: (productId: string, onHand: number) => void;
   inviteUser: (input: { name: string; email: string; role: Role }) => void;
@@ -112,21 +122,73 @@ const Ctx = createContext<Api | null>(null);
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(() => load());
 
-  useEffect(() => {
-    Promise.all([
-      fetch("http://localhost:5000/api/leads").then((r) => r.json()),
-      fetch("http://localhost:5000/api/opportunities").then((r) => r.json()),
-      fetch("http://localhost:5000/api/quotations").then((r) => r.json()),
-    ])
-      .then(([leads, opportunities, quotations]) => {
-        setState((s) => ({
+  const fetchBackendData = async () => {
+    try {
+      const [leadsRes, oppsRes, quotesRes, ordersRes, invoicesRes, paymentsRes, ledgerRes] =
+        await Promise.allSettled([
+          apiClient.leads.list(),
+          apiClient.opportunities.list(),
+          apiClient.quotations.list(),
+          apiClient.orders.list(),
+          apiClient.invoices.list(),
+          apiClient.payments.list(),
+          apiClient.accounting.ledger(),
+        ]);
+
+      setState((s) => {
+        let leads = s.leads;
+        if (leadsRes.status === "fulfilled" && Array.isArray(leadsRes.value)) {
+          leads = leadsRes.value;
+        }
+
+        let opportunities = s.opportunities;
+        if (oppsRes.status === "fulfilled" && Array.isArray(oppsRes.value)) {
+          opportunities = oppsRes.value.map(normalizeOpportunity);
+        }
+
+        let quotations = s.quotations;
+        if (quotesRes.status === "fulfilled" && Array.isArray(quotesRes.value)) {
+          quotations = quotesRes.value.map(normalizeQuotation);
+        }
+
+        let orders = s.orders;
+        if (ordersRes.status === "fulfilled" && Array.isArray(ordersRes.value)) {
+          orders = ordersRes.value.map(normalizeSalesOrder);
+        }
+
+        let invoices = s.invoices;
+        if (invoicesRes.status === "fulfilled" && Array.isArray(invoicesRes.value)) {
+          invoices = invoicesRes.value.map(normalizeInvoice);
+        }
+
+        let payments = s.payments;
+        if (paymentsRes.status === "fulfilled" && Array.isArray(paymentsRes.value)) {
+          payments = paymentsRes.value.map(normalizePayment);
+        }
+
+        let ledger = s.ledger;
+        if (ledgerRes.status === "fulfilled" && ledgerRes.value?.entries && Array.isArray(ledgerRes.value.entries)) {
+          ledger = ledgerRes.value.entries;
+        }
+
+        return {
           ...s,
-          ...(Array.isArray(leads) && { leads }),
-          ...(Array.isArray(opportunities) && { opportunities }),
-          ...(Array.isArray(quotations) && { quotations }),
-        }));
-      })
-      .catch(console.error);
+          leads,
+          opportunities,
+          quotations,
+          orders,
+          invoices,
+          payments,
+          ledger,
+        };
+      });
+    } catch (err) {
+      console.error("Backend fetch error:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchBackendData();
   }, []);
 
   useEffect(() => {
@@ -197,132 +259,296 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setPolicy: (policy) => run((s) => setPolicy(s, policy)),
       reevaluate: () => run(reevaluate),
       addCustomer: (input) => run((s) => addCustomer(s, input)),
+
       addLead: async (input) => {
         try {
-          const res = await fetch("http://localhost:5000/api/leads", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...input, ownerId: state.userId }),
-          });
-          if (res.ok) {
-            const lead = await res.json();
-            setState((s) => ({ ...s, leads: [lead, ...s.leads] }));
-            api.toast(`Lead created successfully`, "success");
-            api.navigate({ page: "leads" });
-          } else {
-            api.toast("Failed to create lead", "danger");
-          }
-        } catch (e) {
-          api.toast("API error", "danger");
+          const lead = await apiClient.leads.create({ ...input, ownerId: state.userId });
+          setState((s) => ({ ...s, leads: [lead, ...s.leads] }));
+          api.toast(`Lead created successfully`, "success");
+          api.navigate({ page: "leads" });
+        } catch (e: any) {
+          console.warn("Backend addLead error, falling back locally:", e);
+          run((s) => addCustomer(s, input as any));
+          api.toast(e.message || "Saved locally", "info");
         }
       },
+
       updateLead: async (id, input) => {
         try {
-          const res = await fetch(`http://localhost:5000/api/leads/${id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(input),
-          });
-          if (res.ok) {
-            const updated = await res.json();
-            setState((s) => ({ ...s, leads: s.leads.map((l) => (l.id === id ? updated : l)) }));
-            api.toast("Lead updated", "success");
-          } else {
-            api.toast("Failed to update lead", "danger");
-          }
-        } catch (e) {
-          api.toast("API error", "danger");
+          const updated = await apiClient.leads.update(id, input);
+          setState((s) => ({ ...s, leads: s.leads.map((l) => (l.id === id ? updated : l)) }));
+          api.toast("Lead updated", "success");
+        } catch (e: any) {
+          console.warn("Backend updateLead error:", e);
+          setState((s) => ({ ...s, leads: s.leads.map((l) => (l.id === id ? { ...l, ...input } : l)) }));
+          api.toast("Lead updated locally", "info");
         }
       },
+
       deleteLead: async (id) => {
         try {
-          const res = await fetch(`http://localhost:5000/api/leads/${id}`, {
-            method: "DELETE",
-          });
-          if (res.ok) {
-            setState((s) => ({ ...s, leads: s.leads.filter((l) => l.id !== id) }));
-            api.toast("Lead deleted", "success");
-          } else {
-            api.toast("Failed to delete lead", "danger");
-          }
-        } catch (e) {
-          api.toast("API error", "danger");
+          await apiClient.leads.delete(id);
+          setState((s) => ({ ...s, leads: s.leads.filter((l) => l.id !== id) }));
+          api.toast("Lead deleted", "success");
+        } catch (e: any) {
+          console.warn("Backend deleteLead error:", e);
+          setState((s) => ({ ...s, leads: s.leads.filter((l) => l.id !== id) }));
+          api.toast("Lead removed locally", "info");
         }
       },
+
       convertLead: async (id) => {
         try {
-          const res = await fetch(`http://localhost:5000/api/leads/${id}/convert`, {
-            method: "POST",
+          const { lead, opportunity, customer } = await apiClient.leads.convert(id);
+          setState((s) => {
+            const customers = s.customers.some((c) => c.id === customer.id) ? s.customers : [customer, ...s.customers];
+            return {
+              ...s,
+              leads: s.leads.map((l) => (l.id === id ? lead : l)),
+              opportunities: [normalizeOpportunity(opportunity), ...s.opportunities],
+              customers,
+            };
           });
-          if (res.ok) {
-            const { lead, opportunity, customer } = await res.json();
-            setState((s) => {
-              const customers = s.customers.some((c) => c.id === customer.id) ? s.customers : [customer, ...s.customers];
-              return {
-                ...s,
-                leads: s.leads.map((l) => (l.id === id ? lead : l)),
-                opportunities: [opportunity, ...s.opportunities],
-                customers,
-              };
-            });
-            api.toast(`${id} converted to ${opportunity.id}`, "success");
-            api.navigate({ page: "pipeline", id: opportunity.id });
-          } else {
-            api.toast("Failed to convert lead", "danger");
-          }
+          api.toast(`${id} converted to ${opportunity.id}`, "success");
+          api.navigate({ page: "pipeline", id: opportunity.id });
         } catch (e) {
-          api.toast("API error", "danger");
+          console.warn("Backend convertLead error, running locally:", e);
+          run((s) => localConvertLead(s, id));
         }
       },
+
       moveOpportunity: async (id, stage) => {
         try {
-          const res = await fetch(`http://localhost:5000/api/opportunities/${id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ stage, probability: stage === "Won" ? 100 : stage === "Lost" ? 0 : undefined }),
+          const opp = await apiClient.opportunities.update(id, {
+            stage,
+            probability: stage === "Won" ? 100 : stage === "Lost" ? 0 : undefined,
           });
-          if (res.ok) {
-            const opp = await res.json();
-            setState((s) => ({
-              ...s,
-              opportunities: s.opportunities.map((o) => (o.id === id ? opp : o)),
-            }));
-            api.toast(`Moved to ${stage}`, "success");
-          } else {
-            api.toast("Failed to move opportunity", "danger");
-          }
+          setState((s) => ({
+            ...s,
+            opportunities: s.opportunities.map((o) => (o.id === id ? normalizeOpportunity(opp) : o)),
+          }));
+          api.toast(`Moved to ${stage}`, "success");
         } catch (e) {
-          api.toast("API error", "danger");
+          console.warn("Backend moveOpportunity error, falling back locally:", e);
+          setState((s) => ({
+            ...s,
+            opportunities: s.opportunities.map((o) => (o.id === id ? { ...o, stage } : o)),
+          }));
+          api.toast(`Moved to ${stage}`, "info");
         }
       },
+
       addInteraction: (input) => run((s) => addInteraction(s, input)),
+
       addQuotation: async (input) => {
         try {
-          const res = await fetch("http://localhost:5000/api/quotations", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...input, createdBy: state.userId }),
-          });
-          if (res.ok) {
-            const quotation = await res.json();
-            setState((s) => ({ ...s, quotations: [quotation, ...s.quotations] }));
-            api.toast(`Quotation issued`, "success");
-            api.navigate({ page: "quotation", id: quotation.id });
-          } else {
-            api.toast("Failed to create quotation", "danger");
-          }
+          const raw = await apiClient.quotations.create({ ...input, createdBy: state.userId });
+          const quotation = normalizeQuotation(raw);
+          setState((s) => ({ ...s, quotations: [quotation, ...s.quotations] }));
+          api.toast(`Quotation issued: ${quotation.id}`, "success");
+          api.navigate({ page: "quotation", id: quotation.id });
         } catch (e) {
-          api.toast("API error", "danger");
+          console.warn("Backend addQuotation error, falling back locally:", e);
+          run((s) => {
+            const nextState = localConvertQuotation(s, input.customerId);
+            return nextState;
+          });
         }
       },
-      convertQuotation: (id) => run((s) => convertQuotation(s, id)),
-      createOrder: (input) => run((s) => createOrder(s, input)),
+
+      convertQuotation: async (id) => {
+        const quote = state.quotations.find((q) => q.id === id);
+        if (!quote) return;
+        try {
+          const rawOrder = await apiClient.orders.create({
+            quotationId: id,
+            customerId: quote.customerId,
+            createdBy: state.userId,
+          });
+          const order = normalizeSalesOrder(rawOrder);
+          setState((s) => ({
+            ...s,
+            orders: [order, ...s.orders.filter((o) => o.id !== order.id)],
+            quotations: s.quotations.map((q) => (q.id === id ? { ...q, status: "Converted", orderId: order.id } : q)),
+          }));
+          api.toast(`Quotation converted to Sales Order ${order.id}`, "success");
+          api.navigate({ page: "order", id: order.id });
+        } catch (e) {
+          console.warn("Backend convertQuotation error, falling back locally:", e);
+          run((s) => localConvertQuotation(s, id));
+        }
+      },
+
+      createOrder: async (input) => {
+        try {
+          const raw = await apiClient.orders.create({
+            customerId: input.customerId,
+            lines: [{ productId: input.productId, qty: input.qty, unitPrice: input.unitPrice }],
+            discountPct: input.discountPct,
+            opportunityId: input.opportunityId,
+            createdBy: state.userId,
+          });
+          const order = normalizeSalesOrder(raw);
+          setState((s) => ({
+            ...s,
+            orders: [order, ...s.orders],
+          }));
+          api.toast(`Sales Order ${order.id} created`, "success");
+          api.navigate({ page: "order", id: order.id });
+        } catch (e) {
+          console.warn("Backend createOrder error, running locally:", e);
+          run((s) => localCreateOrder(s, input));
+        }
+      },
+
       attemptApproval: (id) => run((s) => attemptApproval(s, id)),
-      approveOrder: (id) => run((s) => approveOrder(s, id)),
-      rejectOrder: (id, reason) => run((s) => rejectOrder(s, id, reason)),
-      requestChanges: (id, note) => run((s) => requestChanges(s, id, note)),
-      releaseOrder: (id) => run((s) => releaseOrder(s, id)),
-      recordPayment: (input) => run((s) => recordPayment(s, input)),
+
+      approveOrder: async (orderId) => {
+        try {
+          const updatedRaw = await apiClient.orders.update(orderId, { approvalStatus: "Approved" });
+          const updatedOrder = normalizeSalesOrder(updatedRaw);
+
+          // Auto-issue invoice on approval
+          let createdInvoice: any = null;
+          try {
+            const rawInv = await apiClient.invoices.create({ orderId });
+            createdInvoice = normalizeInvoice(rawInv);
+          } catch (invErr) {
+            console.warn("Auto-invoice creation note:", invErr);
+          }
+
+          setState((s) => ({
+            ...s,
+            orders: s.orders.map((o) => (o.id === orderId ? updatedOrder : o)),
+            invoices: createdInvoice ? [createdInvoice, ...s.invoices.filter((i) => i.id !== createdInvoice.id)] : s.invoices,
+          }));
+
+          api.toast(`${orderId} approved successfully`, "success");
+          if (createdInvoice) {
+            api.navigate({ page: "invoice", id: createdInvoice.id });
+          }
+        } catch (e) {
+          console.warn("Backend approveOrder error, falling back locally:", e);
+          run((s) => localApproveOrder(s, orderId));
+        }
+      },
+
+      rejectOrder: async (id, reason) => {
+        try {
+          const updatedRaw = await apiClient.orders.update(id, { approvalStatus: "Rejected", rejectReason: reason });
+          const updatedOrder = normalizeSalesOrder(updatedRaw);
+          setState((s) => ({
+            ...s,
+            orders: s.orders.map((o) => (o.id === id ? updatedOrder : o)),
+          }));
+          api.toast(`${id} rejected`, "danger");
+        } catch (e) {
+          console.warn("Backend rejectOrder error, falling back locally:", e);
+          run((s) => localRejectOrder(s, id, reason));
+        }
+      },
+
+      requestChanges: async (id, note) => {
+        try {
+          const updatedRaw = await apiClient.orders.update(id, { approvalStatus: "Changes Requested", changeNote: note });
+          const updatedOrder = normalizeSalesOrder(updatedRaw);
+          setState((s) => ({
+            ...s,
+            orders: s.orders.map((o) => (o.id === id ? updatedOrder : o)),
+          }));
+          api.toast(`Changes requested on ${id}`, "warning");
+        } catch (e) {
+          console.warn("Backend requestChanges error, falling back locally:", e);
+          run((s) => localRequestChanges(s, id, note));
+        }
+      },
+
+      releaseOrder: async (id) => {
+        try {
+          const updatedRaw = await apiClient.orders.update(id, { inventoryStatus: "Reserved" });
+          const updatedOrder = normalizeSalesOrder(updatedRaw);
+          setState((s) => ({
+            ...s,
+            orders: s.orders.map((o) => (o.id === id ? updatedOrder : o)),
+          }));
+          api.toast(`${id} released to fulfillment`, "success");
+        } catch (e) {
+          console.warn("Backend releaseOrder error, falling back locally:", e);
+          run((s) => localReleaseOrder(s, id));
+        }
+      },
+
+      recordPayment: async (input) => {
+        try {
+          const res = await apiClient.payments.record({
+            invoiceId: input.invoiceId,
+            amount: input.amount,
+            method: input.method,
+            reference: input.reference,
+            recordedBy: state.userId,
+            date: input.date,
+          });
+
+          const payment = normalizePayment(res);
+          const updatedInvoice = res.invoice ? normalizeInvoice(res.invoice) : null;
+
+          setState((s) => {
+            const nextInvoices = updatedInvoice
+              ? s.invoices.map((i) => (i.id === updatedInvoice.id ? updatedInvoice : i))
+              : s.invoices.map((i) =>
+                  i.id === input.invoiceId
+                    ? {
+                        ...i,
+                        paid: i.paid + input.amount,
+                        outstanding: Math.max(0, i.outstanding - input.amount),
+                        status: i.outstanding - input.amount <= 0 ? "Paid" : "Partially Paid",
+                      }
+                    : i
+                );
+
+            const nextCustomers = s.customers.map((c) =>
+              c.id === payment.customerId
+                ? { ...c, outstanding: Math.max(0, c.outstanding - input.amount), lastActivity: new Date().toISOString() }
+                : c
+            );
+
+            return {
+              ...s,
+              payments: [payment, ...s.payments],
+              invoices: nextInvoices,
+              customers: nextCustomers,
+            };
+          });
+
+          // Refresh ledger entries to reflect new receipt
+          apiClient.accounting.ledger().then((lRes) => {
+            if (lRes?.entries && Array.isArray(lRes.entries)) {
+              setState((s) => ({ ...s, ledger: lRes.entries }));
+            }
+          }).catch(() => {});
+
+          api.toast(`Simulated payment ${payment.reference} recorded against ${input.invoiceId}`, "success");
+          api.navigate({ page: "invoice", id: input.invoiceId });
+        } catch (e: any) {
+          console.warn("Backend recordPayment error, running locally:", e);
+          run((s) => localRecordPayment(s, input));
+        }
+      },
+
+      syncLedger: async () => {
+        try {
+          const res = await apiClient.accounting.syncLedger();
+          const lRes = await apiClient.accounting.ledger();
+          if (lRes?.entries && Array.isArray(lRes.entries)) {
+            setState((s) => ({ ...s, ledger: lRes.entries }));
+          }
+          api.toast(`Ledger synchronized: ${res.syncedEntriesCount ?? 0} entries posted`, "success");
+        } catch (e: any) {
+          console.warn("Backend syncLedger error:", e);
+          api.toast("Failed to sync ledger from backend", "danger");
+        }
+      },
+
       receivePurchase: (id) => run((s) => receivePurchase(s, id)),
       adjustStock: (productId, onHand) => run((s) => adjustStock(s, productId, onHand)),
       inviteUser: (input) => run((s) => inviteUser(s, input)),
@@ -332,7 +558,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
       refresh: () => {
         setState((s) => patchUi(s, { refreshing: true }));
-        window.setTimeout(() => setState((s) => patchUi(s, { refreshing: false })), 700);
+        fetchBackendData().finally(() => {
+          setState((s) => patchUi(s, { refreshing: false }));
+        });
       },
       closeDecision: () => run(closeDecision),
     };

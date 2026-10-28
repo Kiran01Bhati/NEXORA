@@ -228,9 +228,11 @@ export function PaymentForm({ onDone, invoiceId }: { onDone?: () => void; invoic
           </SelectInput>
         </Field>
       </div>
-      <Field label="Reference"><TextInput value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} placeholder="UTR / cheque no." /></Field>
+      <Field label="Reference" hint="Simulated transaction. Leave blank to auto-generate DEMO reference.">
+        <TextInput value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} placeholder="e.g. DEMO-TXN-101 (or auto-generated)" />
+      </Field>
       <Field label="Date"><TextInput type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></Field>
-      <div className="flex justify-end"><Button type="submit" variant="blue">Record payment</Button></div>
+      <div className="flex justify-end"><Button type="submit" variant="blue">Record demo payment</Button></div>
     </form>
   );
 }

@@ -375,8 +375,22 @@ export function PaymentsPage() {
       <Card>
         <DataTable
           columns={[
-            { key: "id", header: "Payment ID", render: (r) => <Mono className="text-[#0B132B]">{r.id}</Mono> },
+            {
+              key: "id",
+              header: "Payment ID",
+              render: (r) => (
+                <div className="flex items-center gap-1.5">
+                  <Mono className="text-[#0B132B]">{r.id}</Mono>
+                  {(r.reference?.startsWith("DEMO") || r.reference?.startsWith("SIM") || r.method?.includes("DEMO")) && (
+                    <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-600/20 ring-inset">
+                      Demo
+                    </span>
+                  )}
+                </div>
+              ),
+            },
             { key: "inv", header: "Invoice", render: (r) => r.invoiceId },
+            { key: "ref", header: "Reference", render: (r) => <Mono className="text-xs text-slate-500">{r.reference}</Mono> },
             { key: "customer", header: "Customer", render: (r) => state.customers.find((c) => c.id === r.customerId)?.company },
             { key: "amount", header: "Amount", align: "right" as const, sort: (r) => r.amount, render: (r) => formatINR(r.amount) },
             { key: "method", header: "Method", render: (r) => r.method },
@@ -395,7 +409,7 @@ export function PaymentsPage() {
 }
 
 export function AccountsPage() {
-  const { state } = useApp();
+  const { state, syncLedger } = useApp();
   const debits = state.ledger.reduce((s, l) => s + l.debit, 0);
   const credits = state.ledger.reduce((s, l) => s + l.credit, 0);
   const ar = arBalance(state);
@@ -408,7 +422,12 @@ export function AccountsPage() {
   const rows = [...withBal].reverse();
   return (
     <div>
-      <PageHeader eyebrow="ERP" title="Accounts" subtitle="A working ledger, not a full accounting suite. Receivables stay tied to open invoices." />
+      <PageHeader
+        eyebrow="ERP"
+        title="Accounts"
+        subtitle="A working ledger, not a full accounting suite. Receivables stay tied to open invoices."
+        actions={<Button size="sm" variant="secondary" onClick={syncLedger}>Sync Ledger</Button>}
+      />
       <div className="mb-4 grid gap-3 sm:grid-cols-3">
         <Kpi label="Total debits" value={formatINR(debits, true)} hint="All journal lines" icon="book" />
         <Kpi label="Total credits" value={formatINR(credits, true)} hint="Should match debits" icon="scale" />
