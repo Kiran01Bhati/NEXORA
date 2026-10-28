@@ -69,19 +69,20 @@ model Lead {
 }
 
 model Opportunity {
-  id                String      @id @default(uuid())
+  id                String       @id @default(uuid())
   leadId            String
-  lead              Lead        @relation(fields: [leadId], references: [id])
+  lead              Lead         @relation(fields: [leadId], references: [id])
   title             String
   description       String?
   estimatedValue    Float
   probability       Float
   expectedCloseDate DateTime?
   stage             String
-  status            String      @default("open")
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  status            String       @default("open")
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
   quotations        Quotation[]
+  salesOrders       SalesOrder[]
 }
 
 model Product {
@@ -122,7 +123,8 @@ model Quotation {
   opportunityId String?
   opportunity   Opportunity? @relation(fields: [opportunityId], references: [id])
 
-  items QuotationItem[]
+  items       QuotationItem[]
+  salesOrders SalesOrder[]
 }
 
 model QuotationItem {
@@ -158,13 +160,15 @@ model SalesOrder {
   rejectReason    String?
 
   customerId    String
-  customer      Customer @relation(fields: [customerId], references: [id])
+  customer      Customer     @relation(fields: [customerId], references: [id])
   createdBy     String
-  creator       User     @relation("Creator", fields: [createdBy], references: [id])
+  creator       User         @relation("Creator", fields: [createdBy], references: [id])
   approverId    String?
-  approver      User?    @relation("Approver", fields: [approverId], references: [id])
+  approver      User?        @relation("Approver", fields: [approverId], references: [id])
   quotationId   String?
+  quotation     Quotation?   @relation(fields: [quotationId], references: [id])
   opportunityId String?
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id])
 
   lines    SalesOrderLine[]
   invoices Invoice[]
